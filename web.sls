@@ -1,77 +1,30 @@
-gcc:
-  pkg:
-    - name: gcc
-    - installed
+{% set drupal_version = "7.31" %}
+{% set drupal_memcache_version = "7.x-1.2" %}
 
-apache2:
-  pkg:
-    - name: apache2
-    - installed
-
-php5:
-  pkg:
-    - name: php5
-    - installed
-
-php5-mysql:
-  pkg:
-    - name: php5-mysql
-    - installed
-
-php5-gd:
-  pkg:
-    - name: php5-gd
-    - installed
-
-php5-apc:
-  pkg:
-    - name: php-apc
-    - installed
-
-memcached:
-  pkg:
-    - name: memcached
-    - installed
-
-libmemcached-tools:
-  pkg:
-    - name: libmemcached-tools
-    - installed
-
-php5-dev:
-  pkg:
-    - name: php5-dev
-    - installed
-
-php-pear:
-  pkg:
-    - name: php-pear
-    - installed
-
-make:
-  pkg:
-    - name: make
-    - installed
+# Installed required software
+drupal-software:
+  pkg.installed:
+    - pkgs:
+      - gcc
+      - apache2
+      - php5
+      - php5-mysql
+      - php5-gd
+      - php-apc
+      - memcached
+      - libmemcached-tools
+      - php5-dev
+      - php-pear
+      - make
 
 pecl_memcache:
   pecl.installed:
     - name: memcache
 
+# Remove default index.html
 /var/www/index.html:
   file.absent:
     - name: /var/www/index.html
-
-drupal_archive:
-  file.managed:
-    - name: /var/drupal_web.tar.gz
-    - source: salt://drupal/files/drupal_web.tar.gz
-
-unzip_archive:
-  cmd.wait:
-    - name: tar -zxvf drupal_web.tar.gz
-    - cwd: /var/
-    - watch:
-      - file: drupal_archive
 
 /var/www:
   file.directory:
@@ -83,24 +36,106 @@ unzip_archive:
       - group
       - mode
 
+/etc/apache2/sites-enabled/000-default:
+  file.absent:
+    - require:
+      - pkg: drupal-software
+
+/etc/apache2/sites-enabled/drupal:
+  file.managed:
+    - source: salt://drupal/files/apache2/vhost
+    - require:
+      - pkg: drupal-software
+
+# Only move, and extract drupal files if settings does not exist.
+{% if 1 == salt['cmd.retcode']('test -f /var/www/sites/default/settings.php') %}
+
+# Get the drupal tarball
+/tmp/drupal-{{ drupal_version }}.tar.gz:
+  file.managed:
+    - source: salt://drupal/files/drupal/drupal-{{ drupal_version }}.tar.gz
+unzip_drupal:
+  cmd.run:
+    - name: tar -zxf drupal-{{ drupal_version }}.tar.gz
+    - cwd: /tmp
+    - require:
+      - file: /tmp/drupal-{{ drupal_version }}.tar.gz
+move_drupal_files:
+  cmd.run:
+    - name: mv drupal-{{ drupal_version }}/* drupal-{{ drupal_version }}/.htaccess drupal-{{ drupal_version }}/.gitignore /var/www/
+    - cwd: /tmp
+    - require:
+      - cmd: unzip_drupal
+
+# Get the drupal memcache module tarball
+/tmp/memcache-{{ drupal_memcache_version }}.tar.gz:
+  file.managed:
+    - source: salt://drupal/files/drupal/plugins/memcache-{{ drupal_memcache_version }}.tar.gz
+unzip_drupal_memcache:
+  cmd.run:
+    - name: tar -zxf memcache-{{ drupal_memcache_version }}.tar.gz
+    - cwd: /tmp
+    - require:
+      - file: /tmp/memcache-{{ drupal_memcache_version }}.tar.gz
+move_drupal_memcache_files:
+  cmd.run:
+    - name: mv memcache /var/www/sites/all/modules/
+    - cwd: /tmp
+    - require:
+      - cmd: unzip_drupal_memcache
+
+# Clean up .tar.gz and remaining directories
+drupal_cleanup:
+  cmd.run:
+    - name: rm -rf drupal* memcache*
+    - cwd: /tmp
+    - require:
+      - cmd: move_drupal_files
+      - cmd: move_drupal_memcache_files
+
+# Recurse and set permissions.
+permissions:
+  file.directory:
+    - name: /var/www/
+    - user: www-data
+    - group: www-data
+    - mode: 755
+    - recurse:
+      - user
+      - group
+      - mode
+    - require:
+      - cmd: move_drupal_files
+      - cmd: move_drupal_memcache_files
+{% endif %}
+
 /var/www/sites/default/settings.php:
   file.managed:
     - name: /var/www/sites/default/settings.php
-    - source: salt://drupal/files/drupal_settings.php
+    - source: salt://drupal/files/drupal/settings.php
     - template: jinja
     - user: www-data
     - group: www-data
     - mode: 755
+    - replace: False
+
+/var/www/status.php:
+  file.managed:
+    - source: salt://drupal/files/drupal/status.php
 
 php_memcache_ini:
   file.managed:
     - name: /etc/php5/conf.d/memcache.ini
-    - source: salt://drupal/files/php-memcache.ini
+    - source: salt://drupal/files/php/php-memcache.ini
+
+/etc/php5/apache2/php.ini:
+  file.managed:
+    - source: salt://drupal/files/php/php.ini
 
 memcached_conf:
   file.managed:
     - name: /etc/memcached.conf
-    - source: salt://drupal/files/memcached.conf
+    - source: salt://drupal/files/memcached/memcached.conf
     - template: jinja
 
 apache-service:
@@ -110,6 +145,8 @@ apache-service:
     - watch:
       - file: php_memcache_ini
       - pecl: pecl_memcache
+      - file: /etc/apache2/sites-enabled/drupal
+      - file: /etc/php5/apache2/php.ini
 
 memcached-service:
   service:
@@ -118,5 +155,3 @@ memcached-service:
     - watch:
       - file: memcached_conf
       - pecl: pecl_memcache
-
-
