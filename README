@@ -1,0 +1,11 @@
+This is an unfinished collection of states designed to setup memcache,
+drupal, php, apache, and ha proxy.
+
+This the db state in this repo depends on another repo, mysql.
+
+More info to come when time permits.
+
+Need to add information about the following:
+  - pillars
+  - grains 
+  - how to use
