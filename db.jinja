@@ -11,6 +11,6 @@
 
     'db_name': salt['pillar.get']('drupal:db:name', 'drupal_db'),
 
-    'master': salt['publish.publish']('roles:db', 'network.ip_addrs', db_interface, 'grain').values()[0][0],
-    'slaves': salt['publish.publish']('roles:db_slave', 'network.ip_addrs',  db_interface, 'grain'),
+    'master': salt['mine.get']('roles:db', 'network.ip_addrs', 'grain').values()[0][0],
+    'slaves': salt['mine.get']('roles:db_slave', 'network.ip_addrs', 'grain'),
 } %}
